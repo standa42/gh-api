@@ -9,7 +9,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-github_personal_access_token = "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"
+github_personal_access_token = ""
 
 base = declarative_base()
 engine = sa.create_engine("postgresql://postgresUser:postgresPasswordSeCrEt@localhost:5432/gh_api_db")
