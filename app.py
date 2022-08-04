@@ -6,12 +6,13 @@ from flask import Flask, jsonify
 from flask_restful import Api, Resource, reqparse, abort, fields, marshal_with
 from flask_sqlalchemy import SQLAlchemy
 
+# declare application and database
 app = Flask(__name__)
 api = Api(app)
-# docker run --name postgresql-dmole -e POSTGRES_USER=postgresUser -e POSTGRES_PASSWORD=postgresPasswordSeCrEt -e POSTGRES_DB=gh_api_db -p 5432:5432 -v /data:/data -d postgres
 app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgresUser:postgresPasswordSeCrEt@localhost:5432/gh_api_db"
 db = SQLAlchemy(app)
 
+# declare database models
 class RepositoryModel(db.Model):
 	id = db.Column(db.BigInteger, primary_key=True)
 	owner = db.Column(db.String(100), nullable=False) 
@@ -29,8 +30,10 @@ class RepositoryEventModel(db.Model):
 	def __repr__(self):
 		return f"Repository event (id = {self.id}, repository_id = {self.repository_id} event_type = {self.event_type}, event_time = {self.event_time})"
 
+# db models creation in db # TODO: move to separate script - should be executed only once
 db.create_all()
 
+# marshalling of the repository model
 repository_model_resource_fields = {
 	'id': fields.Integer,
 	'owner': fields.String,
@@ -47,7 +50,6 @@ class Repository(Resource):
 
 	@marshal_with(repository_model_resource_fields)
 	def put(self, owner, name):
-		# args = video_put_args.parse_args()
 		result = RepositoryModel.query.filter_by(owner=owner, name=name).first()
 		if result:
 			abort(409, message=f"Repository with owner={owner} and name={name} already exists")
@@ -79,13 +81,18 @@ class RepositoryMetrics(Resource):
 		repository_result = RepositoryModel.query.filter_by(owner=owner, name=name).first()
 		if not repository_result:
 			abort(404, message=f"Repository with owner={owner} and name={name} does not exist")
-
+		
+		# calculate offset limit datetime
 		time_before_offset_minutes = datetime.now() - timedelta(minutes=int(offset_minutes))
 
+		# get events based on repository id, time offset, ordered by time
 		repository_event_result = RepositoryEventModel.query.filter_by(repository_id = repository_result.id).filter(RepositoryEventModel.event_time >= time_before_offset_minutes).order_by(RepositoryEventModel.event_time.desc()).all() #.filter(RepositoryEventModel.event_time >= time_before_offset_minutes)
 
+		# do subsequent diffrences in pull events in seconds
 		avg_between_pulls = [abs((j.event_time-i.event_time).total_seconds()) for i,j in zip(repository_event_result, repository_event_result[1:])] 
+		# average those differences
 		avg_between_pulls = "not enough pull events" if avg_between_pulls == [] else statistics.mean(avg_between_pulls)
+		# aggregate various types of events
 		sum_watch_events = len(list(filter(lambda repo_event: repo_event.event_type == "WatchEvent", repository_event_result)))
 		sum_pull_request_events = len(list(filter(lambda repo_event: repo_event.event_type == "PullRequestEvent", repository_event_result)))
 		sum_issues_events = len(list(filter(lambda repo_event: repo_event.event_type == "IssuesEvent", repository_event_result)))
@@ -99,6 +106,7 @@ class RepositoryMetrics(Resource):
 			"issues_events_count": str(sum_issues_events),
 			})
 
+# routing
 api.add_resource(Repository, "/repository/<string:owner>/<string:name>")
 api.add_resource(Repositories, "/repository")
 api.add_resource(RepositoryMetrics, "/repositoryMetrics/<string:owner>/<string:name>/<string:offset_minutes>")
